@@ -128,7 +128,7 @@ footer { color: var(--muted); font-size: 13px; max-width: 70ch; }
       <h1 id="lensName">RF100mm F2.8 L Macro IS USM</h1>
       <div class="sub" id="lensSub">Depth of field · full frame</div>
     </div>
-    <div class="seg" role="group" aria-label="Mode">
+    <div class="seg" id="modeSeg" role="group" aria-label="Mode">
       <button id="modeDist" aria-pressed="true">Distance</button>
       <button id="modeMacro" aria-pressed="false">Macro</button>
     </div>
@@ -153,6 +153,16 @@ footer { color: var(--muted); font-size: 13px; max-width: 70ch; }
     </section>
 
     <section class="panel">
+      <label class="ctrl"><span class="label">Lens</span>
+        <select id="lens"></select>
+      </label>
+
+      <div class="ctrl" id="flCtrl" hidden>
+        <div class="ctrl-head"><span class="label">Focal length</span><span class="ctrl-val" id="flVal">300 mm</span></div>
+        <input type="range" id="fl" min="100" max="300" step="1" aria-label="Focal length">
+        <div class="chips" id="flChips"></div>
+      </div>
+
       <div class="two">
         <label class="ctrl"><span class="label">Camera</span>
           <select id="cam"></select>
@@ -205,34 +215,36 @@ footer { color: var(--muted); font-size: 13px; max-width: 70ch; }
   </div>
 
   <footer>
-    Thin-lens formulas, distance measured from the sensor plane (the ⦶ mark on the body). Macro mode uses the magnification formula, which stays accurate at close range where this lens's internal focusing shortens its working focal length. Diffraction figures assume green light (550 nm). Treat results as a guide and check at 100% on the back screen.
+    Thin-lens formulas, distance measured from the sensor plane (the ⦶ mark on the body). Macro mode uses the magnification formula, which stays accurate at close range where the 100mm Macro's internal focusing shortens its working focal length. Diffraction figures assume green light (550 nm). Treat results as a guide and check at 100% on the back screen.
   </footer>
 </div>
 
 <script>
 // Lens and camera data. Add entries here to expand the app.
 const LENSES = {
-  rf100macro: { name: "RF100mm F2.8 L Macro IS USM", f: 100, nMin: 2.8, nMax: 32, mfd: 0.26, maxMag: 1.4 }
+  rf100macro:  { name: "RF100mm F2.8 L Macro IS USM", short: "RF100mm F2.8 L Macro", fMin: 100, fMax: 100, nMin: 2.8, nMax: 32, mfd: 0.26, maxMag: 1.4, macro: true },
+  rf100300:    { name: "RF100-300mm F2.8 L IS USM", short: "RF100-300mm F2.8 L", fMin: 100, fMax: 300, nMin: 2.8, nMax: 22, mfd: 1.8, maxMag: 0.16, fChips: [100, 135, 200, 300] },
+  // Extender figures are what the camera displays: focal length and f-number × 1.4
+  rf100300x14: { name: "RF100-300mm F2.8 L IS USM + Extender RF1.4×", short: "RF100-300mm F2.8 L + RF1.4×", fMin: 140, fMax: 420, nMin: 4, nMax: 32, mfd: 1.8, maxMag: 0.22, fChips: [140, 200, 280, 420] }
 };
 const CAMERAS = {
   r5ii: { name: "EOS R5 Mark II", pitch: 4.39 },  // µm, 8192 px across 36 mm
   r3:   { name: "EOS R3",         pitch: 6.00 }   // µm, 6000 px across 36 mm
 };
 const ALL_STOPS = [1.2,1.4,1.6,1.8,2,2.2,2.5,2.8,3.2,3.5,4,4.5,5,5.6,6.3,7.1,8,9,10,11,13,14,16,18,20,22,25,29,32,36,40,45];
-const lens = LENSES.rf100macro;
-const STOPS = ALL_STOPS.filter(n => n >= lens.nMin && n <= lens.nMax);
-
-const DMIN = lens.mfd, DMAX = 200;
+let lens, STOPS;
+const DMAX = 200;
 const $ = id => document.getElementById(id);
+const focal = () => lens.fMin === lens.fMax ? lens.fMin : S.focal[S.lens];
 
-const defaults = { mode: "distance", cam: "r5ii", coc: "std", n: 8, dist: 3, mag: 1, apMode: "nominal", depth: 10 };
+const defaults = { lens: "rf100macro", focal: {}, mode: "distance", cam: "r5ii", coc: "std", n: 8, dist: 3, mag: 1, apMode: "nominal", depth: 10 };
 let S = { ...defaults };
 try { Object.assign(S, JSON.parse(localStorage.getItem("dof-rf100") || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem("dof-rf100", JSON.stringify(S)); } catch (e) {} };
 
 // Distance slider is logarithmic
-const toSlider = d => Math.round(1000 * Math.log(d / DMIN) / Math.log(DMAX / DMIN));
-const fromSlider = v => DMIN * Math.pow(DMAX / DMIN, v / 1000);
+const toSlider = d => Math.round(1000 * Math.log(d / lens.mfd) / Math.log(DMAX / lens.mfd));
+const fromSlider = v => lens.mfd * Math.pow(DMAX / lens.mfd, v / 1000);
 
 function fmtLen(mm) {
   if (!isFinite(mm)) return "∞";
@@ -252,7 +264,7 @@ function coc() {
 }
 
 function calc() {
-  const f = lens.f, c = coc();
+  const f = focal(), c = coc();
   let N = S.n, r = {};
   if (S.mode === "distance") {
     const s = S.dist * 1000;
@@ -288,30 +300,30 @@ function diffraction(r) {
 }
 
 // ---- scale drawing ----
-const W = 640, Hh = 116;
+const W = 640, Hh = 120;
 function svg(inner) { return '<svg viewBox="0 0 ' + W + ' ' + Hh + '" role="img" aria-label="Depth of field scale">' + inner + '</svg>'; }
 const css = v => "var(--" + v + ")";
 
 function drawDistance(r) {
   const L = 24, R = 580, INF = 616;
-  const lo = Math.log(0.25), hi = Math.log(DMAX);
-  const x = mm => { const m = mm / 1000; if (!isFinite(m) || m >= DMAX) return INF; return L + (Math.log(Math.max(m, 0.25)) - lo) / (hi - lo) * (R - L); };
+  const lo = Math.log(lens.macro ? 0.25 : 1.5), hi = Math.log(DMAX);
+  const x = mm => { const m = mm / 1000; if (!isFinite(m) || m >= DMAX) return INF; return L + (Math.log(Math.max(m, Math.exp(lo))) - lo) / (hi - lo) * (R - L); };
   let g = '';
   g += '<rect x="' + L + '" y="38" width="' + (INF - L) + '" height="22" rx="4" fill="' + css("sunken") + '" stroke="' + css("line") + '"/>';
   const x1 = x(r.near), x2 = x(r.far);
   g += '<rect x="' + x1 + '" y="38" width="' + Math.max(2, x2 - x1) + '" height="22" rx="3" fill="' + css("band-soft") + '" stroke="' + css("band") + '" stroke-width="1.5"/>';
-  const ticks = [0.3, 0.5, 0.7, 1, 1.5, 2, 3, 5, 10, 20, 50, 100];
+  const ticks = (lens.macro ? [0.3, 0.5, 1, 2, 5, 10, 20, 50, 100] : [2, 3, 5, 10, 20, 50, 100]);
   ticks.forEach(t => {
     const tx = x(t * 1000);
     g += '<line x1="' + tx + '" x2="' + tx + '" y1="60" y2="68" stroke="' + css("muted") + '"/>';
-    g += '<text x="' + tx + '" y="82" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="' + css("muted") + '">' + t + '</text>';
+    g += '<text x="' + tx + '" y="88" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="17" fill="' + css("muted") + '">' + t + '</text>';
   });
-  g += '<text x="' + INF + '" y="83" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="14" fill="' + css("muted") + '">∞</text>';
-  g += '<text x="' + L + '" y="104" font-family="IBM Plex Mono, monospace" font-size="10" fill="' + css("muted") + '" letter-spacing="1">METRES</text>';
+  g += '<text x="' + INF + '" y="89" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="' + css("muted") + '">∞</text>';
+  g += '<text x="' + L + '" y="110" font-family="IBM Plex Mono, monospace" font-size="13" fill="' + css("muted") + '" letter-spacing="1">METRES</text>';
   // hyperfocal marker
   const hx = x(r.H);
   g += '<path d="M' + (hx - 5) + ' 30 L' + (hx + 5) + ' 30 L' + hx + ' 37 Z" fill="' + css("muted") + '"/>';
-  g += '<text x="' + Math.min(hx, 600) + '" y="24" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="' + css("muted") + '">H</text>';
+  g += '<text x="' + Math.min(hx, 600) + '" y="24" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="15" fill="' + css("muted") + '">H</text>';
   // focus line
   const fx = x(r.s);
   g += '<line x1="' + fx + '" x2="' + fx + '" y1="30" y2="68" stroke="' + css("accent") + '" stroke-width="2.5"/>';
@@ -336,9 +348,9 @@ function drawMacro(r) {
     const tx = x(v);
     g += '<line x1="' + tx + '" x2="' + tx + '" y1="60" y2="68" stroke="' + css("muted") + '"/>';
     const lab = (Math.abs(v) < 1e-9 ? "0" : (v > 0 ? "+" : "−") + +Math.abs(v).toFixed(2));
-    g += '<text x="' + tx + '" y="82" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="' + css("muted") + '">' + lab + '</text>';
+    g += '<text x="' + tx + '" y="88" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="15" fill="' + css("muted") + '">' + lab + '</text>';
   }
-  g += '<text x="' + L + '" y="104" font-family="IBM Plex Mono, monospace" font-size="10" fill="' + css("muted") + '" letter-spacing="1">MM FROM FOCUS PLANE · CAMERA SIDE ←</text>';
+  g += '<text x="' + L + '" y="110" font-family="IBM Plex Mono, monospace" font-size="13" fill="' + css("muted") + '" letter-spacing="1">MM FROM FOCUS PLANE · CAMERA SIDE ←</text>';
   g += '<line x1="' + C + '" x2="' + C + '" y1="30" y2="68" stroke="' + css("accent") + '" stroke-width="2.5"/>';
   g += '<circle cx="' + C + '" cy="30" r="4" fill="' + css("accent") + '"/>';
   return svg(g);
@@ -347,6 +359,14 @@ function drawMacro(r) {
 // ---- render ----
 function render() {
   const macro = S.mode === "macro";
+  const zoom = lens.fMin !== lens.fMax;
+  $("lens").value = S.lens;
+  $("lensName").textContent = lens.name;
+  $("lensSub").textContent = (zoom ? lens.fMin + "–" + lens.fMax : lens.fMin) + "mm · " + fN(lens.nMin) + " to " + fN(lens.nMax) + " · closest focus " + fmtLen(lens.mfd * 1000);
+  $("modeSeg").hidden = !lens.macro;
+  $("flCtrl").hidden = !zoom;
+  $("fl").value = focal(); $("flVal").textContent = focal() + " mm";
+  document.querySelectorAll("#flChips .chip").forEach(b => b.setAttribute("aria-pressed", +b.dataset.v === focal()));
   $("modeDist").setAttribute("aria-pressed", !macro);
   $("modeMacro").setAttribute("aria-pressed", macro);
   $("distCtrl").hidden = macro; $("magCtrl").hidden = !macro;
@@ -370,8 +390,10 @@ function render() {
   $("depth").value = S.depth;
 
   const r = calc();
-  $("oNear").textContent = macro ? "−" + fmtLen(r.near) : fmtLen(r.near);
-  $("oFar").textContent = macro ? "+" + fmtLen(r.far) : fmtLen(r.far);
+  // Thin zones at a distance need millimetre precision or near and far read the same
+  const lim = mm => r.total < 100 && mm >= 1000 && isFinite(mm) ? (mm / 1000).toFixed(3) + " m" : fmtLen(mm);
+  $("oNear").textContent = macro ? "−" + fmtLen(r.near) : lim(r.near);
+  $("oFar").textContent = macro ? "+" + fmtLen(r.far) : lim(r.far);
   $("oTotal").textContent = fmtLen(r.total);
   $("oMag").textContent = (r.m < 0.1 ? "1:" + Math.round(1 / r.m) : r.m.toFixed(2) + "×");
   $("oNeff").textContent = fN(r.nEff) + (macro && S.apMode === "effective" ? " (lens " + fN(r.nNom) + ")" : "");
@@ -383,7 +405,7 @@ function render() {
   $("dPill").className = "pill " + cls; $("dPill").textContent = word; $("dText").textContent = text;
 
   const w = $("warn");
-  if (!macro && S.dist < 1) {
+  if (lens.macro && !macro && S.dist < 1) {
     w.hidden = false;
     w.textContent = "Under 1 m this lens's focal length shortens as it focuses, so distance-mode figures drift. For close work switch to Macro mode and use magnification.";
   } else if (macro && S.mag > 0.5 && S.apMode !== "effective") {
@@ -403,21 +425,40 @@ function render() {
 
 // ---- wiring ----
 Object.entries(CAMERAS).forEach(([k, c]) => $("cam").add(new Option(c.name, k)));
-$("ap").max = STOPS.length - 1;
-if (!STOPS.includes(S.n)) S.n = nearestStop(S.n);
-S.dist = Math.min(DMAX, Math.max(DMIN, +S.dist || 3));
-S.mag = Math.min(lens.maxMag, Math.max(0.05, +S.mag || 1));
+Object.entries(LENSES).forEach(([k, l]) => $("lens").add(new Option(l.short, k)));
 
-[0.5, 1, 2, 3, 5, 10, 25].forEach(v => {
-  const b = document.createElement("button"); b.className = "chip"; b.dataset.v = v; b.textContent = v + " m";
-  b.onclick = () => { S.dist = v; render(); }; $("distChips").append(b);
-});
+function chip(parent, v, text, onclick) {
+  const b = document.createElement("button"); b.className = "chip"; b.dataset.v = v; b.textContent = text;
+  b.onclick = onclick; parent.append(b);
+}
+
+function setLens(key) {
+  S.lens = LENSES[key] ? key : "rf100macro";
+  lens = LENSES[S.lens];
+  STOPS = ALL_STOPS.filter(n => n >= lens.nMin && n <= lens.nMax);
+  $("ap").max = STOPS.length - 1;
+  if (!STOPS.includes(S.n)) S.n = nearestStop(S.n);
+  if (!lens.macro) S.mode = "distance";
+  else S.mag = Math.min(lens.maxMag, Math.max(0.05, +S.mag || 1));
+  S.dist = Math.min(DMAX, Math.max(lens.mfd, +S.dist || 3));
+  if (!S.focal || typeof S.focal !== "object") S.focal = {};
+  const fl = +S.focal[S.lens];
+  S.focal[S.lens] = fl >= lens.fMin && fl <= lens.fMax ? fl : lens.fMax;
+  $("fl").min = lens.fMin; $("fl").max = lens.fMax;
+  $("distNum").min = lens.mfd;
+  $("distChips").replaceChildren(); $("flChips").replaceChildren();
+  [0.5, 1, 2, 3, 5, 10, 25, 50].filter(v => v >= lens.mfd).slice(0, 7)
+    .forEach(v => chip($("distChips"), v, v + " m", () => { S.dist = v; render(); }));
+  (lens.fChips || []).forEach(v => chip($("flChips"), v, v + "mm", () => { S.focal[S.lens] = v; render(); }));
+}
 [[0.25, "1:4"], [0.5, "1:2"], [1, "1:1"], [1.4, "1.4×"]].forEach(([v, t]) => {
   const b = document.createElement("button"); b.className = "chip"; b.dataset.v = v; b.textContent = t;
   b.onclick = () => { S.mag = v; render(); }; $("magChips").append(b);
 });
 
-$("modeDist").onclick = () => { S.mode = "distance"; render(); };
+$("lens").onchange = e => { setLens(e.target.value); render(); };
+$("fl").oninput = e => { S.focal[S.lens] = +e.target.value; render(); };
+$("modeDist").onclick =() => { S.mode = "distance"; render(); };
 $("modeMacro").onclick = () => { S.mode = "macro"; render(); };
 $("apNom").onclick = () => { S.apMode = "nominal"; render(); };
 $("apEff").onclick = () => { S.apMode = "effective"; render(); };
@@ -432,6 +473,7 @@ $("distNum").onblur = render;
 $("mag").oninput = e => { S.mag = +e.target.value; render(); };
 $("depth").oninput = e => { const d = parseFloat(e.target.value); if (d > 0) { S.depth = d; render(); } };
 
+setLens(S.lens);
 render();
 </script>
 </body>
