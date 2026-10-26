@@ -222,6 +222,7 @@ footer { color: var(--muted); font-size: 13px; max-width: 70ch; }
 <script>
 // Lens and camera data. Add entries here to expand the app.
 const LENSES = {
+  rf2870:      { name: "RF28-70mm F2 L USM", short: "RF28-70mm F2 L", fMin: 28, fMax: 70, nMin: 2, nMax: 22, mfd: 0.39, maxMag: 0.18, fChips: [28, 35, 50, 70] },
   rf100macro:  { name: "RF100mm F2.8 L Macro IS USM", short: "RF100mm F2.8 L Macro", fMin: 100, fMax: 100, nMin: 2.8, nMax: 32, mfd: 0.26, maxMag: 1.4, macro: true },
   rf100300:    { name: "RF100-300mm F2.8 L IS USM", short: "RF100-300mm F2.8 L", fMin: 100, fMax: 300, nMin: 2.8, nMax: 22, mfd: 1.8, maxMag: 0.16, fChips: [100, 135, 200, 300] },
   // Extender figures are what the camera displays: focal length and f-number × 1.4
@@ -307,13 +308,13 @@ const css = v => "var(--" + v + ")";
 
 function drawDistance(r) {
   const L = 24, R = 580, INF = 616;
-  const lo = Math.log(lens.macro ? 0.25 : 1.5), hi = Math.log(DMAX);
+  const lo = Math.log(lens.mfd * 0.9), hi = Math.log(DMAX);
   const x = mm => { const m = mm / 1000; if (!isFinite(m) || m >= DMAX) return INF; return L + (Math.log(Math.max(m, Math.exp(lo))) - lo) / (hi - lo) * (R - L); };
   let g = '';
   g += '<rect x="' + L + '" y="38" width="' + (INF - L) + '" height="22" rx="4" fill="' + css("sunken") + '" stroke="' + css("line") + '"/>';
   const x1 = x(r.near), x2 = x(r.far);
   g += '<rect x="' + x1 + '" y="38" width="' + Math.max(2, x2 - x1) + '" height="22" rx="3" fill="' + css("band-soft") + '" stroke="' + css("band") + '" stroke-width="1.5"/>';
-  const ticks = (lens.macro ? [0.3, 0.5, 1, 2, 5, 10, 20, 50, 100] : [2, 3, 5, 10, 20, 50, 100]);
+  const ticks = [0.3, 0.5, 1, 2, 3, 5, 10, 20, 50, 100].filter(t => t >= Math.exp(lo));
   ticks.forEach(t => {
     const tx = x(t * 1000);
     g += '<line x1="' + tx + '" x2="' + tx + '" y1="60" y2="68" stroke="' + css("muted") + '"/>';
